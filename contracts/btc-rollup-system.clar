@@ -49,3 +49,6 @@
 
 (define-read-only (get-batch-info (batch-id uint))
     (map-get? batches batch-id))
+
+(define-read-only (get-current-batch)
+    (var-get current-batch-id))
