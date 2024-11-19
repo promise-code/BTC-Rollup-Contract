@@ -13,3 +13,11 @@
 (define-constant ERR-INVALID-STATE (err u1004))
 (define-constant ERR-INSUFFICIENT-FUNDS (err u1005))
 (define-constant ERR-INVALID-MERKLE-PROOF (err u1006))
+
+;; Data vars to track system state
+(define-data-var current-batch-id uint u0)
+(define-data-var operator principal tx-sender)
+(define-data-var batch-size uint u100)
+(define-data-var minimum-deposit uint u1000000) ;; in sats
+(define-data-var state-root (buff 32) 0x)
+(define-data-var last-processed-block uint u0)
