@@ -42,3 +42,7 @@
     { batch-id: uint,
       verified: bool,
       merkle-path: (list 10 (buff 32)) })
+
+;; Read-only functions for querying state
+(define-read-only (get-user-balance (user principal))
+    (default-to u0 (map-get? user-balances user)))
