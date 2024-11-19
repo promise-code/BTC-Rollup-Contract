@@ -28,3 +28,17 @@
 (define-map pending-deposits 
     { tx-hash: (buff 32), owner: principal }
     { amount: uint, confirmed: bool })
+
+(define-map batches 
+    uint 
+    { merkle-root: (buff 32),
+      timestamp: uint,
+      transaction-count: uint,
+      operator: principal,
+      status: (string-ascii 20) })
+
+(define-map transaction-proofs
+    (buff 32)
+    { batch-id: uint,
+      verified: bool,
+      merkle-path: (list 10 (buff 32)) })
