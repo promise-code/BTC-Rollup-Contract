@@ -52,3 +52,10 @@
 
 (define-read-only (get-current-batch)
     (var-get current-batch-id))
+
+(define-read-only (verify-merkle-proof 
+    (leaf (buff 32))
+    (path (list 10 (buff 32)))
+    (root (buff 32)))
+    (let ((computed-root (fold compute-merkle-parent path leaf)))
+    (is-eq computed-root root)))
