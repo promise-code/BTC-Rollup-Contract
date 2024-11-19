@@ -24,3 +24,7 @@
 
 ;; Maps to track user balances and transaction state
 (define-map user-balances principal uint)
+
+(define-map pending-deposits 
+    { tx-hash: (buff 32), owner: principal }
+    { amount: uint, confirmed: bool })
