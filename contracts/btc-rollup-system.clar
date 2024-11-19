@@ -46,3 +46,6 @@
 ;; Read-only functions for querying state
 (define-read-only (get-user-balance (user principal))
     (default-to u0 (map-get? user-balances user)))
+
+(define-read-only (get-batch-info (batch-id uint))
+    (map-get? batches batch-id))
