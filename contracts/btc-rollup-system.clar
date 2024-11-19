@@ -21,3 +21,6 @@
 (define-data-var minimum-deposit uint u1000000) ;; in sats
 (define-data-var state-root (buff 32) 0x)
 (define-data-var last-processed-block uint u0)
+
+;; Maps to track user balances and transaction state
+(define-map user-balances principal uint)
