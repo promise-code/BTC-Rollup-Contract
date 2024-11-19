@@ -59,3 +59,7 @@
     (root (buff 32)))
     (let ((computed-root (fold compute-merkle-parent path leaf)))
     (is-eq computed-root root)))
+
+;; Private helper functions
+(define-private (compute-merkle-parent (node (buff 32)) (acc (buff 32)))
+    (sha256 (concat acc node)))
