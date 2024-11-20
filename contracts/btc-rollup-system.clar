@@ -14,6 +14,10 @@
 (define-constant ERR-INSUFFICIENT-FUNDS (err u1005))
 (define-constant ERR-INVALID-MERKLE-PROOF (err u1006))
 (define-constant ERR-INVALID-TX-HASH (err u1007))
+(define-constant ERR-INVALID-OPERATOR (err u1008))
+(define-constant ERR-ZERO-AMOUNT (err u1009))
+(define-constant ERR-INVALID-BATCH-ID (err u1010))
+(define-constant ERR-EMPTY-PROOF (err u1011))
 
 ;; Data vars to track system state
 (define-data-var current-batch-id uint u0)
@@ -39,7 +43,7 @@
       transaction-count: uint,
       operator: principal,
       status: (string-ascii 20) })
-      
+
 (define-map transaction-proofs
     (buff 32)
     { batch-id: uint,
@@ -97,31 +101,62 @@
     (concat 
         0x010000000000000000000000000000000000000000
         0x000000000000000000000000000000000000000000))
+(define-private (validate-operator (new-operator principal))
+    (begin
+        ;; Check that new operator is not the same as current operator
+        (asserts! (not (is-eq new-operator tx-sender)) ERR-INVALID-OPERATOR)
+        ;; Additional checks could be added here based on specific requirements
+        (ok new-operator)))
+
+(define-private (validate-tx-hash (tx-hash (buff 32)))
+    (begin
+        (asserts! (not (is-eq tx-hash 0x)) ERR-INVALID-TX-HASH)
+        (ok tx-hash)))
+
+(define-private (validate-amount (amount uint))
+    (begin
+        (asserts! (> amount u0) ERR-ZERO-AMOUNT)
+        (ok amount)))
+
+(define-private (validate-batch-id (batch-id uint))
+    (begin
+        (asserts! (< batch-id (var-get current-batch-id)) ERR-INVALID-BATCH-ID)
+        (ok batch-id)))
+
+(define-private (validate-proof (proof (buff 512)))
+    (begin
+        (asserts! (> (len proof) u0) ERR-EMPTY-PROOF)
+        (ok proof)))
 
 ;; Public functions for interacting with the rollup
 (define-public (initialize-operator (new-operator principal))
     (begin
         (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
-        (var-set operator new-operator)
-        (ok true)))
+        (let ((validated-operator (try! (validate-operator new-operator))))
+            (var-set operator validated-operator)
+            (ok true))))
 
 (define-public (deposit (tx-hash (buff 32)) (amount uint))
     (let ((sender tx-sender)
-          (deposit-record { amount: amount, confirmed: false }))
-        (try! (validate-deposit tx-hash amount))
+          (validated-tx-hash (try! (validate-tx-hash tx-hash)))
+          (validated-amount (try! (validate-amount amount)))
+          (deposit-record { amount: validated-amount, confirmed: false }))
+        (try! (validate-deposit validated-tx-hash validated-amount))
         (map-set pending-deposits
-            { tx-hash: tx-hash, owner: sender }
+            { tx-hash: validated-tx-hash, owner: sender }
             deposit-record)
-        (map-set processed-tx-hashes tx-hash true)
+        (map-set processed-tx-hashes validated-tx-hash true)
         (ok true)))
 
 (define-public (confirm-deposit (tx-hash (buff 32)))
-    (let ((deposit-info (unwrap! (map-get? pending-deposits { tx-hash: tx-hash, owner: tx-sender })
-                           ERR-INVALID-STATE))
+    (let ((validated-tx-hash (try! (validate-tx-hash tx-hash)))
+          (deposit-info (unwrap! (map-get? pending-deposits 
+                        { tx-hash: validated-tx-hash, owner: tx-sender })
+                        ERR-INVALID-STATE))
           (current-balance (get-user-balance tx-sender)))
         (asserts! (not (get confirmed deposit-info)) ERR-INVALID-STATE)
         (map-set pending-deposits
-            { tx-hash: tx-hash, owner: tx-sender }
+            { tx-hash: validated-tx-hash, owner: tx-sender }
             (merge deposit-info { confirmed: true }))
         (map-set user-balances
             tx-sender
@@ -149,14 +184,13 @@
         (ok true)))
 
 (define-public (verify-batch (batch-id uint) (proof (buff 512)))
-    (let ((batch (unwrap! (map-get? batches batch-id) ERR-INVALID-BATCH))
+    (let ((validated-batch-id (try! (validate-batch-id batch-id)))
+          (validated-proof (try! (validate-proof proof)))
+          (batch (unwrap! (map-get? batches validated-batch-id) ERR-INVALID-BATCH))
           (operator-principal (var-get operator)))
         (asserts! (is-eq tx-sender operator-principal) ERR-NOT-AUTHORIZED)
-        ;; Here we would verify the zk-proof
-        ;; This is a placeholder for actual zk-proof verification
-        (asserts! (> (len proof) u0) ERR-INVALID-PROOF)
         
-        (map-set batches batch-id
+        (map-set batches validated-batch-id
             (merge batch { status: "verified" }))
         (ok true)))
 
