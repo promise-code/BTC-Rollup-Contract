@@ -63,3 +63,9 @@
 ;; Private helper functions
 (define-private (compute-merkle-parent (node (buff 32)) (acc (buff 32)))
     (sha256 (concat acc node)))
+
+(define-private (validate-deposit (tx-hash (buff 32)) (amount uint))
+    (let ((block-height (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.btc-bridge get-block-height tx-hash)))
+        (asserts! (>= amount (var-get minimum-deposit)) ERR-INSUFFICIENT-FUNDS)
+        (asserts! (> block-height (var-get last-processed-block)) ERR-INVALID-STATE)
+        (ok true)))
