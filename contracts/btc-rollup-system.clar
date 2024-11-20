@@ -137,3 +137,17 @@
         (map-set batches batch-id
             (merge batch { status: "verified" }))
         (ok true)))
+
+(define-public (withdraw (amount uint) (proof (list 10 (buff 32))))
+    (let ((sender tx-sender)
+          (current-balance (get-user-balance sender)))
+        (asserts! (>= current-balance amount) ERR-INSUFFICIENT-FUNDS)
+        (asserts! (verify-merkle-proof 
+            (sha256 (concat (princ-to-buff sender) (uint-to-buff amount)))
+            proof
+            (var-get state-root)) ERR-INVALID-MERKLE-PROOF)
+        
+        (map-set user-balances
+            sender
+            (- current-balance amount))
+        (ok true)))
