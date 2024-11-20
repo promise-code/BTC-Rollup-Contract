@@ -69,3 +69,9 @@
         (asserts! (>= amount (var-get minimum-deposit)) ERR-INSUFFICIENT-FUNDS)
         (asserts! (> block-height (var-get last-processed-block)) ERR-INVALID-STATE)
         (ok true)))
+
+(define-private (process-batch-merkle-root 
+    (transactions (list 100 {tx-hash: (buff 32), amount: uint, recipient: principal})))
+    (fold sha256-combine
+        (map get-tx-hash transactions)
+        0x))
