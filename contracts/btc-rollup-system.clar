@@ -31,7 +31,7 @@
 (define-map pending-deposits 
     { tx-hash: (buff 32), owner: principal }
     { amount: uint, confirmed: bool })
-    
+
 (define-map batches 
     uint 
     { merkle-root: (buff 32),
@@ -39,6 +39,7 @@
       transaction-count: uint,
       operator: principal,
       status: (string-ascii 20) })
+      
 (define-map transaction-proofs
     (buff 32)
     { batch-id: uint,
@@ -115,16 +116,16 @@
         (ok true)))
 
 (define-public (confirm-deposit (tx-hash (buff 32)))
-    (let ((deposit (unwrap! (map-get? pending-deposits { tx-hash: tx-hash, owner: tx-sender })
+    (let ((deposit-info (unwrap! (map-get? pending-deposits { tx-hash: tx-hash, owner: tx-sender })
                            ERR-INVALID-STATE))
           (current-balance (get-user-balance tx-sender)))
-        (asserts! (not (get confirmed deposit)) ERR-INVALID-STATE)
+        (asserts! (not (get confirmed deposit-info)) ERR-INVALID-STATE)
         (map-set pending-deposits
             { tx-hash: tx-hash, owner: tx-sender }
-            (merge deposit { confirmed: true }))
+            (merge deposit-info { confirmed: true }))
         (map-set user-balances
             tx-sender
-            (+ current-balance (get amount deposit)))
+            (+ current-balance (get amount deposit-info)))
         (ok true)))
 
 (define-public (submit-batch
