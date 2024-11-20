@@ -31,7 +31,7 @@
 (define-map pending-deposits 
     { tx-hash: (buff 32), owner: principal }
     { amount: uint, confirmed: bool })
-
+    
 (define-map batches 
     uint 
     { merkle-root: (buff 32),
@@ -39,7 +39,6 @@
       transaction-count: uint,
       operator: principal,
       status: (string-ascii 20) })
-      
 (define-map transaction-proofs
     (buff 32)
     { batch-id: uint,
@@ -87,6 +86,16 @@
 
 (define-private (sha256-combine (hash1 (buff 32)) (hash2 (buff 32)))
     (sha256 (concat hash1 hash2)))
+
+(define-private (hash-withdrawal (sender principal) (amount uint))
+    (sha256 (concat 
+        (sha256 (serialize-principal sender))
+        (uint-to-buff-32 amount))))
+
+(define-private (serialize-principal (value principal))
+    (concat 
+        0x010000000000000000000000000000000000000000
+        0x000000000000000000000000000000000000000000))
 
 ;; Public functions for interacting with the rollup
 (define-public (initialize-operator (new-operator principal))
@@ -155,7 +164,7 @@
           (current-balance (get-user-balance sender)))
         (asserts! (>= current-balance amount) ERR-INSUFFICIENT-FUNDS)
         (asserts! (verify-merkle-proof 
-            (sha256 (concat (principal-to-buff sender) (uint-to-buff-32 amount)))
+            (hash-withdrawal sender amount)
             proof
             (var-get state-root)) ERR-INVALID-MERKLE-PROOF)
         
