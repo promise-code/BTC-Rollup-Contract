@@ -91,3 +91,16 @@
             { tx-hash: tx-hash, owner: sender }
             deposit-record)
         (ok true)))
+
+(define-public (confirm-deposit (tx-hash (buff 32)))
+    (let ((deposit (unwrap! (map-get? pending-deposits { tx-hash: tx-hash, owner: tx-sender })
+                           ERR-INVALID-STATE))
+          (current-balance (get-user-balance tx-sender)))
+        (asserts! (not (get confirmed deposit)) ERR-INVALID-STATE)
+        (map-set pending-deposits
+            { tx-hash: tx-hash, owner: tx-sender }
+            (merge deposit { confirmed: true }))
+        (map-set user-balances
+            tx-sender
+            (+ current-balance (get amount deposit)))
+        (ok true)))
