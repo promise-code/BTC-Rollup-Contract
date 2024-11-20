@@ -113,18 +113,17 @@
         (asserts! (is-eq tx-sender operator-principal) ERR-NOT-AUTHORIZED)
         (asserts! (<= (len transactions) (var-get batch-size)) ERR-BATCH-LIMIT-EXCEEDED)
         (asserts! (is-eq merkle-root (process-batch-merkle-root transactions)) ERR-INVALID-MERKLE-PROOF)
-        
+
         (map-set batches batch-id
             { merkle-root: merkle-root,
               timestamp: block-height,
               transaction-count: (len transactions),
               operator: operator-principal,
               status: "pending" })
-        
+
         (var-set current-batch-id (+ batch-id u1))
         (var-set state-root merkle-root)
         (ok true)))
-
 
 (define-public (verify-batch (batch-id uint) (proof (buff 512)))
     (let ((batch (unwrap! (map-get? batches batch-id) ERR-INVALID-BATCH))
@@ -133,7 +132,7 @@
         ;; Here we would verify the zk-proof
         ;; This is a placeholder for actual zk-proof verification
         (asserts! (> (len proof) u0) ERR-INVALID-PROOF)
-        
+
         (map-set batches batch-id
             (merge batch { status: "verified" }))
         (ok true)))
@@ -146,8 +145,14 @@
             (sha256 (concat (princ-to-buff sender) (uint-to-buff amount)))
             proof
             (var-get state-root)) ERR-INVALID-MERKLE-PROOF)
-        
+
         (map-set user-balances
             sender
             (- current-balance amount))
         (ok true)))
+
+;; Initialize contract
+(begin
+    (var-set operator tx-sender)
+    (var-set state-root (sha256 0x00))
+    (var-set current-batch-id u0))
