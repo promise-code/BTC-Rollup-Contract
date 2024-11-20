@@ -21,6 +21,7 @@
 (define-constant ERR-BOUNDS-CHECK (err u1012))
 (define-constant MAX-BATCH-ID u1000000)
 (define-constant MAX-AMOUNT u100000000000) ;; 1000 BTC in sats
+(define-constant ZERO-BUFF 0x0000000000000000000000000000000000000000000000000000000000000000)
 
 ;; Data vars to track system state
 (define-data-var current-batch-id uint u0)
@@ -52,6 +53,8 @@
     { batch-id: uint,
       verified: bool,
       merkle-path: (list 10 (buff 32)) })
+      
+(define-map authorized-operators principal bool)
 
 ;; Read-only functions for querying state
 (define-read-only (get-user-balance (user principal))
@@ -107,16 +110,14 @@
 
 (define-private (validate-operator (new-operator principal))
     (begin
-        ;; Check that new operator is not the same as current operator
         (asserts! (not (is-eq new-operator tx-sender)) ERR-INVALID-OPERATOR)
-        ;; Additional checks could be added here based on specific requirements
-        (asserts! (is-some (contract-call? .stacks-btc-registry is-registered new-operator)) ERR-INVALID-OPERATOR)
+        (asserts! (not (is-eq new-operator (var-get operator))) ERR-INVALID-OPERATOR)
         (ok new-operator)))
 
 (define-private (validate-tx-hash (tx-hash (buff 32)))
     (begin
-        (asserts! (not (is-eq tx-hash 0x0000000000000000000000000000000000000000000000000000000000000000)) ERR-INVALID-TX-HASH)
-        (asserts! (not (map-get? processed-tx-hashes tx-hash)) ERR-INVALID-TX-HASH)
+        (asserts! (not (is-eq tx-hash ZERO-BUFF)) ERR-INVALID-TX-HASH)
+        (asserts! (not (default-to false (map-get? processed-tx-hashes tx-hash))) ERR-INVALID-TX-HASH)
         (ok tx-hash)))
 
 (define-private (validate-amount (amount uint))
@@ -139,7 +140,7 @@
 ;; Safe state modification functions
 (define-private (safe-set-operator (new-operator principal))
     (begin
-        (asserts! (not (is-eq new-operator (var-get operator))) ERR-INVALID-OPERATOR)
+        (map-set authorized-operators new-operator true)
         (var-set operator new-operator)
         (ok true)))
 
@@ -157,6 +158,7 @@
                         ERR-INVALID-STATE))
           (current-balance (get-user-balance sender)))
         (asserts! (not (get confirmed deposit-info)) ERR-INVALID-STATE)
+        (asserts! (<= (+ current-balance (get amount deposit-info)) MAX-AMOUNT) ERR-BOUNDS-CHECK)
         (map-set pending-deposits
             { tx-hash: tx-hash, owner: sender }
             (merge deposit-info { confirmed: true }))
@@ -169,9 +171,14 @@
 (define-public (initialize-operator (new-operator principal))
     (begin
         (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
-        (let ((validated-operator (try! (validate-operator new-operator))))
-            (try! (safe-set-operator validated-operator))
-            (ok true))))
+        (let ((validation-result (validate-operator new-operator)))
+            (match validation-result
+                success (begin
+                    (map-set authorized-operators new-operator true)
+                    (var-set operator new-operator)
+                    (ok true))
+                error (err error)))))
+
 
 (define-public (deposit (tx-hash (buff 32)) (amount uint))
     (let ((sender tx-sender)
@@ -182,9 +189,9 @@
         (ok true)))
 
 (define-public (confirm-deposit (tx-hash (buff 32)))
-    (let ((validated-tx-hash (try! (validate-tx-hash tx-hash))))
-        (try! (safe-confirm-deposit validated-tx-hash tx-sender))
-        (ok true)))
+    (match (validate-tx-hash tx-hash)
+        tx-success (safe-confirm-deposit tx-hash tx-sender)
+        tx-error (err tx-error)))
 
 (define-public (submit-batch
     (transactions (list 100 {tx-hash: (buff 32), amount: uint, recipient: principal}))
@@ -207,18 +214,19 @@
         (ok true)))
 
 (define-public (verify-batch (batch-id uint) (proof (buff 512)))
-    (let ((validated-batch-id (try! (validate-batch-id batch-id)))
-          (validated-proof (try! (validate-proof proof)))
-          (batch (unwrap! (map-get? batches validated-batch-id) ERR-INVALID-BATCH))
-          (operator-principal (var-get operator)))
-        (asserts! (is-eq tx-sender operator-principal) ERR-NOT-AUTHORIZED)
-        ;; Additional verification steps could be added here
-        (map-set batches validated-batch-id
-            (merge batch { 
-                status: "verified",
-                proof-hash: (sha512 validated-proof)
-            }))
-        (ok true)))
+    (let ((batch (unwrap! (map-get? batches batch-id) ERR-INVALID-BATCH)))
+        (match (validate-batch-id batch-id)
+            bid-success (match (validate-proof proof)
+                proof-success (begin
+                    (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
+                    (map-set batches batch-id
+                        (merge batch { 
+                            status: "verified",
+                            proof-hash: (sha512 proof)
+                        }))
+                    (ok true))
+                proof-error (err proof-error))
+            bid-error (err bid-error))))
 
 (define-public (withdraw (amount uint) (proof (list 10 (buff 32))))
     (let ((sender tx-sender)
@@ -248,8 +256,9 @@
                 0x00
             )))
 
-;; Initialize contract
+;; Initialize contract state at deployment
 (begin
     (var-set operator tx-sender)
-    (var-set state-root (sha256 0x00))
+    (map-set authorized-operators tx-sender true)
+    (var-set state-root (sha256 ZERO-BUFF))
     (var-set current-batch-id u0))
