@@ -75,3 +75,10 @@
     (fold sha256-combine
         (map get-tx-hash transactions)
         0x))
+
+;; Public functions for interacting with the rollup
+(define-public (initialize-operator (new-operator principal))
+    (begin
+        (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
+        (var-set operator new-operator)
+        (ok true)))
