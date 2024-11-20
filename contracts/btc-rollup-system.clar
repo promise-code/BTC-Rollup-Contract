@@ -124,3 +124,16 @@
         (var-set current-batch-id (+ batch-id u1))
         (var-set state-root merkle-root)
         (ok true)))
+
+
+(define-public (verify-batch (batch-id uint) (proof (buff 512)))
+    (let ((batch (unwrap! (map-get? batches batch-id) ERR-INVALID-BATCH))
+          (operator-principal (var-get operator)))
+        (asserts! (is-eq tx-sender operator-principal) ERR-NOT-AUTHORIZED)
+        ;; Here we would verify the zk-proof
+        ;; This is a placeholder for actual zk-proof verification
+        (asserts! (> (len proof) u0) ERR-INVALID-PROOF)
+        
+        (map-set batches batch-id
+            (merge batch { status: "verified" }))
+        (ok true)))
