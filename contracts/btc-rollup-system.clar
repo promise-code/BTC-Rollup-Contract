@@ -104,3 +104,23 @@
             tx-sender
             (+ current-balance (get amount deposit)))
         (ok true)))
+
+(define-public (submit-batch
+    (transactions (list 100 {tx-hash: (buff 32), amount: uint, recipient: principal}))
+    (merkle-root (buff 32)))
+    (let ((batch-id (var-get current-batch-id))
+          (operator-principal (var-get operator)))
+        (asserts! (is-eq tx-sender operator-principal) ERR-NOT-AUTHORIZED)
+        (asserts! (<= (len transactions) (var-get batch-size)) ERR-BATCH-LIMIT-EXCEEDED)
+        (asserts! (is-eq merkle-root (process-batch-merkle-root transactions)) ERR-INVALID-MERKLE-PROOF)
+        
+        (map-set batches batch-id
+            { merkle-root: merkle-root,
+              timestamp: block-height,
+              transaction-count: (len transactions),
+              operator: operator-principal,
+              status: "pending" })
+        
+        (var-set current-batch-id (+ batch-id u1))
+        (var-set state-root merkle-root)
+        (ok true)))
