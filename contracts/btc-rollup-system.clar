@@ -82,3 +82,12 @@
         (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
         (var-set operator new-operator)
         (ok true)))
+
+(define-public (deposit (tx-hash (buff 32)) (amount uint))
+    (let ((sender tx-sender)
+          (deposit-record { amount: amount, confirmed: false }))
+        (try! (validate-deposit tx-hash amount))
+        (map-set pending-deposits
+            { tx-hash: tx-hash, owner: sender }
+            deposit-record)
+        (ok true)))
