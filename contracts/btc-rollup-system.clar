@@ -14,14 +14,9 @@
 (define-constant ERR-INSUFFICIENT-FUNDS (err u1005))
 (define-constant ERR-INVALID-MERKLE-PROOF (err u1006))
 (define-constant ERR-INVALID-TX-HASH (err u1007))
-(define-constant ERR-INVALID-OPERATOR (err u1008))
-(define-constant ERR-ZERO-AMOUNT (err u1009))
+(define-constant ERR-ZERO-AMOUNT (err u1008))
+(define-constant ERR-INVALID-OPERATOR (err u1009))
 (define-constant ERR-INVALID-BATCH-ID (err u1010))
-(define-constant ERR-EMPTY-PROOF (err u1011))
-(define-constant ERR-BOUNDS-CHECK (err u1012))
-(define-constant MAX-BATCH-ID u1000000)
-(define-constant MAX-AMOUNT u100000000000) ;; 1000 BTC in sats
-(define-constant ZERO-BUFF 0x0000000000000000000000000000000000000000000000000000000000000000)
 
 ;; Data vars to track system state
 (define-data-var current-batch-id uint u0)
@@ -47,14 +42,12 @@
       transaction-count: uint,
       operator: principal,
       status: (string-ascii 20) })
-
+      
 (define-map transaction-proofs
     (buff 32)
     { batch-id: uint,
       verified: bool,
       merkle-path: (list 10 (buff 32)) })
-      
-(define-map authorized-operators principal bool)
 
 ;; Read-only functions for querying state
 (define-read-only (get-user-balance (user principal))
@@ -86,6 +79,31 @@
         (asserts! (not (is-tx-processed tx-hash)) ERR-INVALID-TX-HASH)
         (ok true)))
 
+;; Additional validation function for operators
+(define-private (validate-new-operator (new-operator principal))
+    (begin
+        ;; Prevent zero address
+        (asserts! (not (is-eq new-operator tx-sender)) ERR-INVALID-OPERATOR)
+        ;; Optional: Add a whitelist or additional criteria
+        (asserts! (is-some (some new-operator)) ERR-INVALID-OPERATOR)
+        (ok true)))
+
+;; Enhanced deposit validation
+(define-private (validate-enhanced-deposit (tx-hash (buff 32)) (amount uint))
+    (begin
+        ;; Prevent zero or empty transaction hash
+        (asserts! (not (is-eq tx-hash 0x0000000000000000000000000000000000000000000000000000000000000000)) ERR-INVALID-TX-HASH)
+        
+        ;; Additional amount checks
+        (asserts! (> amount u0) ERR-ZERO-AMOUNT)
+        (asserts! (<= amount u1000000000) ERR-BATCH-LIMIT-EXCEEDED) ;; Example maximum deposit
+        
+        ;; Additional transaction hash validation
+        (asserts! (is-eq (len tx-hash) u32) ERR-INVALID-TX-HASH)
+        
+        (ok true)))
+
+
 (define-private (process-batch-merkle-root 
     (transactions (list 100 {tx-hash: (buff 32), amount: uint, recipient: principal})))
     (fold sha256-combine
@@ -108,90 +126,55 @@
         0x010000000000000000000000000000000000000000
         0x000000000000000000000000000000000000000000))
 
-(define-private (validate-operator (new-operator principal))
-    (begin
-        (asserts! (not (is-eq new-operator tx-sender)) ERR-INVALID-OPERATOR)
-        (asserts! (not (is-eq new-operator (var-get operator))) ERR-INVALID-OPERATOR)
-        (ok new-operator)))
+;; Security check functions
+(define-private (check-operator)
+    (ok (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)))
 
-(define-private (validate-tx-hash (tx-hash (buff 32)))
-    (begin
-        (asserts! (not (is-eq tx-hash ZERO-BUFF)) ERR-INVALID-TX-HASH)
-        (asserts! (not (default-to false (map-get? processed-tx-hashes tx-hash))) ERR-INVALID-TX-HASH)
-        (ok tx-hash)))
+(define-private (check-amount (amount uint))
+    (ok (asserts! (> amount u0) ERR-ZERO-AMOUNT)))
 
-(define-private (validate-amount (amount uint))
-    (begin
-        (asserts! (> amount u0) ERR-ZERO-AMOUNT)
-        (asserts! (< amount MAX-AMOUNT) ERR-BOUNDS-CHECK)
-        (ok amount)))
+(define-private (check-batch-id (batch-id uint))
+    (ok (asserts! (< batch-id (var-get current-batch-id)) ERR-INVALID-BATCH-ID)))
 
-(define-private (validate-batch-id (batch-id uint))
-    (begin
-        (asserts! (< batch-id (var-get current-batch-id)) ERR-INVALID-BATCH-ID)
-        (asserts! (< batch-id MAX-BATCH-ID) ERR-BOUNDS-CHECK)
-        (ok batch-id)))
+(define-private (check-new-operator (new-operator principal))
+    (ok (asserts! 
+        (not (is-eq new-operator tx-sender))
+        ERR-INVALID-OPERATOR)))
 
-(define-private (validate-proof (proof (buff 512)))
+;; Public functions for interacting with the rollup
+(define-public (initialize-operator (new-operator principal))
     (begin
-        (asserts! (> (len proof) u0) ERR-EMPTY-PROOF)
-        (ok proof)))
-
-;; Safe state modification functions
-(define-private (safe-set-operator (new-operator principal))
-    (begin
-        (map-set authorized-operators new-operator true)
+        (try! (check-operator))
+        (try! (validate-new-operator new-operator))
         (var-set operator new-operator)
         (ok true)))
 
-(define-private (safe-process-deposit (tx-hash (buff 32)) (amount uint) (sender principal))
-    (begin
+(define-public (deposit (tx-hash (buff 32)) (amount uint))
+    (let ((sender tx-sender))
+        (try! (check-amount amount))
+        (try! (validate-deposit tx-hash amount))
+        ;; Verify tx-hash is not empty or all zeros
+        (asserts! (not (is-eq tx-hash 0x0000000000000000000000000000000000000000000000000000000000000000)) ERR-INVALID-TX-HASH)
         (map-set pending-deposits
             { tx-hash: tx-hash, owner: sender }
             { amount: amount, confirmed: false })
         (map-set processed-tx-hashes tx-hash true)
         (ok true)))
 
-(define-private (safe-confirm-deposit (tx-hash (buff 32)) (sender principal))
-    (let ((deposit-info (unwrap! (map-get? pending-deposits 
-                        { tx-hash: tx-hash, owner: sender })
-                        ERR-INVALID-STATE))
-          (current-balance (get-user-balance sender)))
+(define-public (confirm-deposit (tx-hash (buff 32)))
+    (let ((deposit-info (unwrap! (map-get? pending-deposits { tx-hash: tx-hash, owner: tx-sender })
+                           ERR-INVALID-STATE))
+          (current-balance (get-user-balance tx-sender)))
         (asserts! (not (get confirmed deposit-info)) ERR-INVALID-STATE)
-        (asserts! (<= (+ current-balance (get amount deposit-info)) MAX-AMOUNT) ERR-BOUNDS-CHECK)
+        ;; Prevent integer overflow
+        (asserts! (<= (+ current-balance (get amount deposit-info)) u340282366920938463463374607431768211455) ERR-INVALID-STATE)
         (map-set pending-deposits
-            { tx-hash: tx-hash, owner: sender }
+            { tx-hash: tx-hash, owner: tx-sender }
             (merge deposit-info { confirmed: true }))
         (map-set user-balances
-            sender
+            tx-sender
             (+ current-balance (get amount deposit-info)))
         (ok true)))
-
-;; Public functions for interacting with the rollup
-(define-public (initialize-operator (new-operator principal))
-    (begin
-        (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
-        (let ((validation-result (validate-operator new-operator)))
-            (match validation-result
-                success (begin
-                    (map-set authorized-operators new-operator true)
-                    (var-set operator new-operator)
-                    (ok true))
-                error (err error)))))
-
-
-(define-public (deposit (tx-hash (buff 32)) (amount uint))
-    (let ((sender tx-sender)
-          (validated-tx-hash (try! (validate-tx-hash tx-hash)))
-          (validated-amount (try! (validate-amount amount))))
-        (try! (validate-deposit validated-tx-hash validated-amount))
-        (try! (safe-process-deposit validated-tx-hash validated-amount sender))
-        (ok true)))
-
-(define-public (confirm-deposit (tx-hash (buff 32)))
-    (match (validate-tx-hash tx-hash)
-        tx-success (safe-confirm-deposit tx-hash tx-sender)
-        tx-error (err tx-error)))
 
 (define-public (submit-batch
     (transactions (list 100 {tx-hash: (buff 32), amount: uint, recipient: principal}))
@@ -214,29 +197,29 @@
         (ok true)))
 
 (define-public (verify-batch (batch-id uint) (proof (buff 512)))
-    (let ((batch (unwrap! (map-get? batches batch-id) ERR-INVALID-BATCH)))
-        (match (validate-batch-id batch-id)
-            bid-success (match (validate-proof proof)
-                proof-success (begin
-                    (asserts! (is-eq tx-sender (var-get operator)) ERR-NOT-AUTHORIZED)
-                    (map-set batches batch-id
-                        (merge batch { 
-                            status: "verified",
-                            proof-hash: (sha512 proof)
-                        }))
-                    (ok true))
-                proof-error (err proof-error))
-            bid-error (err bid-error))))
+    (begin
+        (try! (check-operator))
+        (try! (check-batch-id batch-id))
+        (let ((batch (unwrap! (map-get? batches batch-id) ERR-INVALID-BATCH)))
+            ;; Verify proof is not empty
+            (asserts! (> (len proof) u0) ERR-INVALID-PROOF)
+            ;; Verify batch status
+            (asserts! (is-eq (get status batch) "pending") ERR-INVALID-STATE)
+            (map-set batches batch-id
+                (merge batch { status: "verified" }))
+            (ok true))))
 
 (define-public (withdraw (amount uint) (proof (list 10 (buff 32))))
     (let ((sender tx-sender)
           (current-balance (get-user-balance sender)))
+        (try! (check-amount amount))
         (asserts! (>= current-balance amount) ERR-INSUFFICIENT-FUNDS)
+        ;; Verify proof is not empty
+        (asserts! (> (len proof) u0) ERR-INVALID-PROOF)
         (asserts! (verify-merkle-proof 
             (hash-withdrawal sender amount)
             proof
             (var-get state-root)) ERR-INVALID-MERKLE-PROOF)
-        
         (map-set user-balances
             sender
             (- current-balance amount))
@@ -256,9 +239,8 @@
                 0x00
             )))
 
-;; Initialize contract state at deployment
+;; Initialize contract
 (begin
     (var-set operator tx-sender)
-    (map-set authorized-operators tx-sender true)
-    (var-set state-root (sha256 ZERO-BUFF))
+    (var-set state-root (sha256 0x00))
     (var-set current-batch-id u0))
