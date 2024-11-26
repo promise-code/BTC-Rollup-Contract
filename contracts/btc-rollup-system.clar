@@ -4,7 +4,6 @@
 ;; This contract implements a Bitcoin rollup system, providing mechanisms for depositing, batching, verifying, and withdrawing Bitcoin transactions.
 ;; It includes functionality for managing user balances, tracking transaction states, and verifying Merkle proofs for transaction integrity.
 
-
 ;; constants
 (define-constant ERR-NOT-AUTHORIZED (err u1000))
 (define-constant ERR-INVALID-BATCH (err u1001))
@@ -102,7 +101,6 @@
         (asserts! (is-eq (len tx-hash) u32) ERR-INVALID-TX-HASH)
         
         (ok true)))
-
 
 (define-private (process-batch-merkle-root 
     (transactions (list 100 {tx-hash: (buff 32), amount: uint, recipient: principal})))
